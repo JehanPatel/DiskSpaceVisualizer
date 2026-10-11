@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disk Space Visualizer</title>
+<style>
+:root {
+  --bg: #F4F5F2;
+  --panel: #FFFFFF;
+  --ink: #172126;
+  --muted: #627078;
+  --line: #D9DDD8;
+  --accent: #176B87;
+  --accent-2: #7067A8;
+  --warn: #AA5A17;
+  --danger: #B3261E;
+  --ok: #29724F;
+  --tile-a: #1F7A8C;
+  --tile-b: #7768AE;
+  --tile-c: #C2762B;
+  --tile-d: #3F7D58;
+  --tile-e: #A64D79;
+  --mono: "Cascadia Mono", Consolas, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  color: var(--ink);
+  font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+button, input, select, textarea { font: inherit; }
+button {
+  min-height: 34px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: #9FAAA6; }
+button:disabled { opacity: .55; cursor: default; }
+button.primary { color: #fff; background: var(--accent); border-color: var(--accent); font-weight: 650; }
+button.danger { color: #fff; background: var(--danger); border-color: var(--danger); font-weight: 650; }
+button.quiet { background: transparent; border-color: transparent; color: var(--muted); }
+button.chip { min-height: 28px; padding: 4px 9px; color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { min-height: 100vh; padding-bottom: 72px; }
+.top {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+h1 { margin: 0; font-size: 17px; font-weight: 700; }
+main { padding: 14px 18px 22px; }
+.controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+input[type=text], select, textarea {
+  min-width: 0;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+input[type=text], textarea { font-family: var(--mono); font-size: 13px; }
+.places, .filters, .actions, .crumbs { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.places { margin: 10px 0 2px; }
+.filters { margin-top: 10px; color: var(--muted); }
+details { margin-top: 10px; }
+summary { cursor: pointer; font-weight: 650; width: max-content; }
+textarea { display: block; width: 100%; max-width: 760px; margin-top: 8px; resize: vertical; }
+
+.progress {
+  margin-top: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+.progressHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bar { height: 7px; margin-top: 9px; overflow: hidden; background: var(--line); border-radius: 99px; }
+.fill { width: 35%; height: 100%; background: var(--accent); border-radius: inherit; }
+@media (prefers-reduced-motion: no-preference) {
+  .fill { animation: sweep 1.2s ease-in-out infinite alternate; }
+}
+@keyframes sweep { from { margin-left: 0; } to { margin-left: 63%; } }
+.note, #msg { color: var(--muted); }
+#msg { min-height: 1.5em; margin: 10px 0 0; }
+#msg.error { color: var(--danger); }
+
+.dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  gap: 14px;
+  margin-top: 14px;
+}
+.panel {
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.vizHead, .sideHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.metric { font-size: 22px; font-weight: 750; letter-spacing: 0; }
+.sub { color: var(--muted); font-size: 13px; }
+.crumbs { min-width: 0; }
+.crumbs button { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: #FBFCFA;
+}
+.chartTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.chartBody.pie {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+.pieSvg {
+  width: 220px;
+  height: 220px;
+}
+.pieSlice {
+  cursor: pointer;
+  stroke: #FBFCFA;
+  stroke-width: 1.5;
+}
+.pieSlice:hover { filter: brightness(1.08); }
+.pieCenter {
+  fill: var(--panel);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.pieLegend {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.legendItem {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 0;
+  border-bottom: 1px solid #E8EDE8;
+  color: var(--muted);
+}
+.legendSwatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+.legendName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 650;
+}
+.treemap {
+  position: relative;
+  height: min(58vh, 590px);
+  min-height: 380px;
+  overflow: hidden;
+  background: #E8ECE8;
+  border-radius: 0 0 8px 8px;
+}
+.tile {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.78);
+  color: #fff;
+  text-align: left;
+  padding: 7px;
+  border-radius: 5px;
+}
+.tile:hover { filter: brightness(1.06); z-index: 5; }
+.tile.file { background: #59636A; }
+.tile .name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 720;
+  text-shadow: 0 1px 1px rgba(0,0,0,.25);
+}
+.tile .size {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  opacity: .92;
+}
+.empty {
+  display: grid;
+  place-items: center;
+  height: 280px;
+  color: var(--muted);
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.tabs button[aria-selected="true"] {
+  background: #EAF3F4;
+  border-color: #B9D5DC;
+  color: #0E5167;
+  font-weight: 700;
+}
+.sideBody { padding: 0; }
+.list { max-height: 62vh; overflow: auto; }
+.rowItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.rowItem:hover { background: #F8FAF9; }
+.rowTitle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.rowTitle strong { font-family: inherit; font-size: 13px; }
+.rowMeta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.rowSize { font-weight: 750; white-space: nowrap; }
+.fileActions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 6px; }
+.fileActions button { min-height: 28px; padding: 4px 8px; }
+.fileActions label { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+.oldFilters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.oldFilters label { color: var(--muted); }
+.oldFilters select { width: 100%; margin-top: 4px; }
+
+.bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 18px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.bottomIn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 980px) {
+  .dashboard { grid-template-columns: 1fr; }
+  .list { max-height: none; }
+  .treemap { height: 56vh; }
+}
+@media (max-width: 640px) {
+  .top { padding: 0 12px; }
+  main { padding: 12px; }
+  .controls { grid-template-columns: 1fr; }
+  .filters { align-items: stretch; }
+  .filters select { flex: 1; }
+  .chartBody.pie { grid-template-columns: 1fr; }
+  .pieSvg { width: min(240px, 72vw); height: min(240px, 72vw); justify-self: center; }
+  .oldFilters { grid-template-columns: 1fr; }
+  .metric { font-size: 18px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <h1>Disk Space Visualizer</h1>
+    <button id="quit" class="quiet" type="button">Quit</button>
+  </div>
+
+  <main>
+    <section>
+      <div class="controls">
+        <input id="path" type="text" spellcheck="false" autocomplete="off" placeholder="Folder or drive path">
+        <button id="browse" type="button" hidden>Browse</button>
+        <button id="scan" class="primary" type="button">Scan</button>
+      </div>
+      <div id="places" class="places"></div>
+      <div class="filters">
+        <label for="oldAge">Old files</label>
+        <select id="oldAge">
+          <option value="30">30+ days</option>
+          <option value="90" selected>90+ days</option>
+          <option value="180">180+ days</option>
+          <option value="365">1+ year</option>
+          <option value="730">2+ years</option>
+        </select>
+        <label for="oldSize">Larger than</label>
+        <select id="oldSize">
+          <option value="104857600">100 MB</option>
+          <option value="524288000" selected>500 MB</option>
+          <option value="1073741824">1 GB</option>
+          <option value="5368709120">5 GB</option>
+        </select>
+      </div>
+      <details id="skipbox">
+        <summary>Skipped folders</summary>
+        <textarea id="skip" rows="3" spellcheck="false" aria-label="Skipped folders"></textarea>
+      </details>
+    </section>
+
+    <section id="progress" class="progress" hidden aria-live="polite">
+      <div class="progressHead">
+        <div>
+          <strong id="ptext">Reading folders</strong>
+          <div id="pnote" class="note"></div>
+        </div>
+        <button id="cancel" type="button">Cancel</button>
+      </div>
+      <div class="bar"><div class="fill"></div></div>
+    </section>
+
+    <p id="msg" role="status"></p>
+
+    <section id="results" class="dashboard" hidden>
+      <div class="panel">
+        <div class="vizHead">
+          <div>
+            <div id="metric" class="metric">0 B</div>
+            <div id="scope" class="sub"></div>
+          </div>
+          <div id="crumbs" class="crumbs"></div>
+        </div>
+        <div id="chart" class="chart"></div>
+        <div id="treemap" class="treemap"></div>
+      </div>
+
+      <aside class="panel">
+        <div class="tabs" role="tablist" aria-label="Results">
+          <button id="tabBreakdown" type="button" aria-selected="true">Breakdown</button>
+          <button id="tabOld" type="button" aria-selected="false">Huge old files</button>
+        </div>
+        <div id="breakdownPanel">
+          <div class="sideHead">
+            <strong>Current view</strong>
+            <span id="itemCount" class="sub"></span>
+          </div>
+          <div id="breakdown" class="list"></div>
+        </div>
+        <div id="oldPanel" hidden>
+          <div class="oldFilters">
+            <label>Age
+              <select id="oldAgeSide">
+                <option value="30">30+ days</option>
+                <option value="90" selected>90+ days</option>
+                <option value="180">180+ days</option>
+                <option value="365">1+ year</option>
+                <option value="730">2+ years</option>
+              </select>
+            </label>
+            <label>Size
+              <select id="oldSizeSide">
+                <option value="104857600">100 MB</option>
+                <option value="524288000" selected>500 MB</option>
+                <option value="1073741824">1 GB</option>
+                <option value="5368709120">5 GB</option>
+              </select>
+            </label>
+          </div>
+          <div id="oldFiles" class="list"></div>
+        </div>
+      </aside>
+    </section>
+  </main>
+</div>
+
+<div id="bottom" class="bottom" hidden>
+  <div class="bottomIn">
+    <span id="selInfo">No files selected</span>
+    <div class="actions">
+      <button id="clear" type="button" class="quiet">Clear</button>
+      <button id="delete" type="button" class="danger" disabled>Move to Recycle Bin</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var token = new URLSearchParams(location.search).get('t') || '';
+  var state = {
+    tree: null,
+    files: [],
+    focusPath: '',
+    selected: new Set(),
+    trashName: 'Recycle Bin',
+    tab: 'breakdown'
+  };
+  var colors = ['#1F7A8C', '#7768AE', '#C2762B', '#3F7D58', '#A64D79', '#6D7A22'];
+
+  function $(id) { return document.getElementById(id); }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function api(path, method, body) {
+    var opts = { method: method || 'GET', headers: { 'X-Token': token } };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(path, opts).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) throw new Error(data.error || 'Request failed.');
+        return data;
+      });
+    });
+  }
+
+  function fmtBytes(n) {
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = 0;
+    n = Number(n || 0);
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    var digits = (i === 0 || n >= 100) ? 0 : (n >= 10 ? 1 : 2);
+    return n.toFixed(digits) + ' ' + units[i];
+  }
+
+  function plural(n, one, many) {
+    return n.toLocaleString() + ' ' + (n === 1 ? one : many);
+  }
+
+  function splitPath(p) {
+    var i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'));
+    return { dir: p.slice(0, i + 1), name: p.slice(i + 1) };
+  }
+
+  function setMsg(text, kind) {
+    $('msg').textContent = text || '';
+    $('msg').className = kind || '';
+  }
+
+  function startScan() {
+    var path = $('path').value.trim();
+    if (!path) { setMsg('Enter or choose a folder first.', 'error'); return; }
+    if (/^[A-Za-z]:[\\\/]*$/.test(path) || path === '/') {
+      if (!window.confirm('Scan this whole drive? It can take a while.')) return;
+    }
+    $('scan').disabled = true;
+    setMsg('');
+    state.selected.clear();
+    return api('/api/scan', 'POST', {
+      path: path,
+      excludes: $('skip').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean)
+    }).then(function () {
+      $('results').hidden = true;
+      $('bottom').hidden = true;
+      $('progress').hidden = false;
+      poll();
+    }).catch(function (err) {
+      $('scan').disabled = false;
+      setMsg(err.message, 'error');
+    });
+  }
+
+  function poll() {
+    api('/api/status').then(function (s) {
+      $('ptext').textContent = s.stage + ': ' + plural(s.filesSeen, 'file', 'files');
+      $('pnote').textContent = fmtBytes(s.bytesSeen) + (s.skipped ? ' scanned, ' + plural(s.skipped, 'item', 'items') + ' skipped' : ' scanned');
+      if (s.phase === 'walking') {
+        setTimeout(poll, 450);
+        return;
+      }
+      $('scan').disabled = false;
+      $('progress').hidden = true;
+      if (s.phase === 'done') {
+        loadResults();
+        if (s.skipped) setMsg(plural(s.skipped, 'item', 'items') + ' could not be read and were skipped.');
+      } else if (s.phase === 'cancelled') {
+        setMsg('Scan cancelled.');
+      } else if (s.phase === 'error') {
+        setMsg(s.error || 'The scan failed.', 'error');
+      }
+    }).catch(function (err) {
+      $('scan').disabled = false;
+      $('progress').hidden = true;
+      setMsg(err.message, 'error');
+    });
+  }
+
+  function loadResults() {
+    api('/api/results').then(function (data) {
+      state.tree = data.tree || null;
+      state.files = data.files || [];
+      state.focusPath = state.tree ? state.tree.path : '';
+      state.selected.clear();
+      render();
+    }).catch(function (err) { setMsg(err.message, 'error'); });
+  }
+
+  function findNode(node, path) {
+    if (!node || node.path === path) return node;
+    var kids = node.children || [];
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].type === 'dir') {
+        var found = findNode(kids[i], path);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function lineage(node, path, acc) {
+    acc = acc || [];
+    if (!node) return null;
+    var next = acc.concat([node]);
+    if (node.path === path) return next;
+    var kids = node.children || [];
+    for (var i = 0; i < kids.length; i++) {
+      var found = lineage(kids[i], path, next);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function render() {
+    $('results').hidden = false;
+    var node = findNode(state.tree, state.focusPath) || state.tree;
+    if (!node) return;
+    $('metric').textContent = fmtBytes(node.size);
+    $('scope').textContent = node.path + ' - ' + plural(node.count || 0, 'file', 'files');
+    renderCrumbs();
+    renderChart(node);
+    renderTreemap(node);
+    renderBreakdown(node);
+    renderOldFiles();
+    updateBottom();
+  }
+
+  function renderCrumbs() {
+    var box = $('crumbs');
+    box.textContent = '';
+    (lineage(state.tree, state.focusPath) || [state.tree]).forEach(function (n, i) {
+      var b = el('button', i === 0 ? 'quiet' : '', i === 0 ? 'Root' : n.name);
+      b.type = 'button';
+      b.title = n.path;
+      b.addEventListener('click', function () {
+        state.focusPath = n.path;
+        render();
+      });
+      box.appendChild(b);
+    });
+  }
+
+  function layout(nodes, x, y, w, h) {
+    var out = [];
+    nodes = nodes.filter(function (n) { return n.size > 0; });
+    function rec(items, x0, y0, w0, h0) {
+      if (!items.length || w0 <= 0 || h0 <= 0) return;
+      if (items.length === 1) {
+        out.push({ node: items[0], x: x0, y: y0, w: w0, h: h0 });
+        return;
+      }
+      var total = items.reduce(function (t, n) { return t + n.size; }, 0);
+      var half = total / 2;
+      var sum = 0;
+      var split = 1;
+      for (var i = 0; i < items.length - 1; i++) {
+        if (i > 0 && sum + items[i].size > half) break;
+        sum += items[i].size;
+        split = i + 1;
+      }
+      if (sum <= 0) sum = items[0].size;
+      if (split >= items.length) {
+        split = items.length - 1;
+        sum = items.slice(0, split).reduce(function (t, n) { return t + n.size; }, 0);
+      }
+      var a = items.slice(0, split);
+      var b = items.slice(split);
+      var ratio = sum / total;
+      if (w0 >= h0) {
+        var aw = w0 * ratio;
+        rec(a, x0, y0, aw, h0);
+        rec(b, x0 + aw, y0, w0 - aw, h0);
+      } else {
+        var ah = h0 * ratio;
+        rec(a, x0, y0, w0, ah);
+        rec(b, x0, y0 + ah, w0, h0 - ah);
+      }
+    }
+    rec(nodes, x, y, w, h);
+    return out;
+  }
+
+  function renderChart(node) {
+    var box = $('chart');
+    box.textContent = '';
+    var kids = (node.children || []).filter(function (n) { return n.size > 0; }).slice(0, 6);
+    if (!kids.length) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    var top = el('div', 'chartTop');
+    top.appendChild(el('strong', null, 'Top space users'));
+    box.appendChild(top);
+    renderPieChart(box, kids);
+  }
+
+  function renderPieChart(box, kids) {
+    var body = el('div', 'chartBody pie');
+    var total = kids.reduce(function (t, n) { return t + n.size; }, 0);
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 220 220');
+    svg.setAttribute('class', 'pieSvg');
+    var start = -90;
+    kids.forEach(function (n, i) {
+      var angle = total ? 360 * n.size / total : 0;
+      var path = document.createElementNS('http://www.w3.org/2000/svg', angle >= 359.99 ? 'circle' : 'path');
+      if (angle >= 359.99) {
+        path.setAttribute('cx', '110');
+        path.setAttribute('cy', '110');
+        path.setAttribute('r', '96');
+      } else {
+        path.setAttribute('d', piePath(110, 110, 96, start, start + angle));
+      }
+      path.setAttribute('fill', n.type === 'dir' ? colors[i % colors.length] : '#59636A');
+      path.setAttribute('class', 'pieSlice');
+      path.setAttribute('tabindex', '0');
+      path.setAttribute('role', 'button');
+      path.setAttribute('aria-label', n.name + ', ' + fmtBytes(n.size));
+      path.addEventListener('click', function () {
+        if (n.type === 'dir') {
+          state.focusPath = n.path;
+          render();
+        } else {
+          toggleFile(n.path);
+        }
+      });
+      path.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          path.dispatchEvent(new MouseEvent('click'));
+        }
+      });
+      svg.appendChild(path);
+      start += angle;
+    });
+    var center = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    center.setAttribute('cx', '110');
+    center.setAttribute('cy', '110');
+    center.setAttribute('r', '52');
+    center.setAttribute('class', 'pieCenter');
+    svg.appendChild(center);
+    var label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', '110');
+    label.setAttribute('y', '106');
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('fill', '#172126');
+    label.setAttribute('font-size', '18');
+    label.setAttribute('font-weight', '750');
+    label.textContent = fmtBytes(total);
+    svg.appendChild(label);
+    var sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    sub.setAttribute('x', '110');
+    sub.setAttribute('y', '126');
+    sub.setAttribute('text-anchor', 'middle');
+    sub.setAttribute('fill', '#627078');
+    sub.setAttribute('font-size', '11');
+    sub.textContent = 'top items';
+    svg.appendChild(sub);
+    body.appendChild(svg);
+
+    var legend = el('div', 'pieLegend');
+    kids.forEach(function (n, i) {
+      var row = el('div', 'legendItem');
+      var swatch = el('span', 'legendSwatch');
+      swatch.style.background = n.type === 'dir' ? colors[i % colors.length] : '#59636A';
+      row.appendChild(swatch);
+      row.appendChild(el('span', 'legendName', n.name));
+      row.appendChild(el('span', null, fmtBytes(n.size)));
+      legend.appendChild(row);
+    });
+    body.appendChild(legend);
+    box.appendChild(body);
+  }
+
+  function piePath(cx, cy, r, startAngle, endAngle) {
+    var start = polar(cx, cy, r, endAngle);
+    var end = polar(cx, cy, r, startAngle);
+    var large = endAngle - startAngle <= 180 ? '0' : '1';
+    return [
+      'M', cx, cy,
+      'L', start.x, start.y,
+      'A', r, r, 0, large, 0, end.x, end.y,
+      'Z'
+    ].join(' ');
+  }
+
+  function polar(cx, cy, r, angle) {
+    var rad = angle * Math.PI / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+
+  function renderTreemap(node) {
+    var box = $('treemap');
+    box.textContent = '';
+    var kids = (node.children || []).filter(function (n) { return n.size > 0; });
+    if (!kids.length) {
+      box.appendChild(el('div', 'empty', 'No files found.'));
+      return;
+    }
+    var rects = layout(kids, 0, 0, 100, 100);
+    rects.forEach(function (r, i) {
+      if (r.w < .7 || r.h < .7) return;
+      var b = el('button', 'tile ' + r.node.type);
+      b.type = 'button';
+      b.style.left = r.x + '%';
+      b.style.top = r.y + '%';
+      b.style.width = r.w + '%';
+      b.style.height = r.h + '%';
+      if (r.node.type === 'dir') b.style.background = colors[i % colors.length];
+      b.title = r.node.path + '\n' + fmtBytes(r.node.size);
+      b.appendChild(el('span', 'name', r.node.name));
+      if (r.w > 8 && r.h > 7) b.appendChild(el('span', 'size', fmtBytes(r.node.size)));
+      b.addEventListener('click', function () {
+        if (r.node.type === 'dir') {
+          state.focusPath = r.node.path;
+          render();
+        } else {
+          toggleFile(r.node.path, r.node.size);
+        }
+      });
+      box.appendChild(b);
+    });
+  }
+
+  function renderBreakdown(node) {
+    var box = $('breakdown');
+    box.textContent = '';
+    var kids = (node.children || []).slice();
+    $('itemCount').textContent = plural(kids.length, 'item', 'items');
+    if (!kids.length) {
+      box.appendChild(el('div', 'empty', 'No child items.'));
+      return;
+    }
+    kids.forEach(function (n) {
+      var row = el('div', 'rowItem');
+      var left = el('div');
+      var title = el('div', 'rowTitle');
+      title.appendChild(el('strong', null, n.name));
+      left.appendChild(title);
+      left.appendChild(el('div', 'rowMeta', (n.type === 'dir' ? plural(n.count || 0, 'file', 'files') : new Date(n.modified * 1000).toLocaleDateString()) + ' - ' + n.path));
+      var right = el('div');
+      right.appendChild(el('div', 'rowSize', fmtBytes(n.size)));
+      var acts = el('div', 'fileActions');
+      var reveal = el('button', null, 'Open');
+      reveal.type = 'button';
+      reveal.addEventListener('click', function () { revealPath(n.path); });
+      acts.appendChild(reveal);
+      if (n.type === 'file') acts.appendChild(selectLabel(n.path));
+      right.appendChild(acts);
+      row.appendChild(left);
+      row.appendChild(right);
+      if (n.type === 'dir') {
+        row.addEventListener('dblclick', function () {
+          state.focusPath = n.path;
+          render();
+        });
+      }
+      box.appendChild(row);
+    });
+    if (node.omitted) {
+      box.appendChild(el('div', 'rowItem', plural(node.omitted, 'smaller item', 'smaller items') + ' hidden from this view'));
+    }
+  }
+
+  function renderOldFiles() {
+    var box = $('oldFiles');
+    box.textContent = '';
+    var age = parseInt($('oldAgeSide').value, 10);
+    var min = parseInt($('oldSizeSide').value, 10);
+    var cutoff = Date.now() - age * 86400000;
+    var files = state.files.filter(function (f) {
+      return f.size >= min && f.modified * 1000 <= cutoff;
+    }).slice(0, 250);
+    if (!files.length) {
+      box.appendChild(el('div', 'empty', 'No matching files in the top results.'));
+      return;
+    }
+    files.forEach(function (f) {
+      var p = splitPath(f.path);
+      var row = el('div', 'rowItem');
+      var left = el('div');
+      var title = el('div', 'rowTitle');
+      title.appendChild(el('strong', null, p.name));
+      left.appendChild(title);
+      left.appendChild(el('div', 'rowMeta', new Date(f.modified * 1000).toLocaleDateString() + ' - ' + p.dir));
+      var right = el('div');
+      right.appendChild(el('div', 'rowSize', fmtBytes(f.size)));
+      var acts = el('div', 'fileActions');
+      var reveal = el('button', null, 'Open');
+      reveal.type = 'button';
+      reveal.addEventListener('click', function () { revealPath(f.path); });
+      acts.appendChild(reveal);
+      acts.appendChild(selectLabel(f.path));
+      right.appendChild(acts);
+      row.appendChild(left);
+      row.appendChild(right);
+      box.appendChild(row);
+    });
+  }
+
+  function selectLabel(path) {
+    var label = el('label');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = state.selected.has(path);
+    cb.addEventListener('change', function () {
+      if (cb.checked) state.selected.add(path);
+      else state.selected.delete(path);
+      updateBottom();
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode('Select'));
+    return label;
+  }
+
+  function toggleFile(path) {
+    if (state.selected.has(path)) state.selected.delete(path);
+    else state.selected.add(path);
+    render();
+  }
+
+  function selectedBytes() {
+    var byPath = {};
+    state.files.forEach(function (f) { byPath[f.path] = f.size; });
+    var total = 0;
+    state.selected.forEach(function (p) { total += byPath[p] || 0; });
+    return total;
+  }
+
+  function updateBottom() {
+    var n = state.selected.size;
+    $('bottom').hidden = !state.tree;
+    $('selInfo').textContent = n ? plural(n, 'file', 'files') + ' selected - ' + fmtBytes(selectedBytes()) : 'No files selected';
+    $('delete').disabled = n === 0;
+    $('delete').textContent = 'Move to ' + state.trashName;
+  }
+
+  function deleteSelected() {
+    var paths = Array.from(state.selected);
+    if (!paths.length) return;
+    if (!window.confirm('Move ' + plural(paths.length, 'file', 'files') + ' to ' + state.trashName + '?')) return;
+    $('delete').disabled = true;
+    api('/api/delete', 'POST', { paths: paths }).then(function (data) {
+      var good = (data.results || []).filter(function (r) { return r.ok; });
+      var bad = (data.results || []).filter(function (r) { return !r.ok; });
+      state.selected.clear();
+      return api('/api/results').then(function (fresh) {
+        state.tree = fresh.tree;
+        state.files = fresh.files || [];
+        if (!findNode(state.tree, state.focusPath)) state.focusPath = state.tree ? state.tree.path : '';
+        render();
+        setMsg('Moved ' + plural(good.length, 'file', 'files') + ' to ' + state.trashName + (bad.length ? '. ' + bad[0].error : ''), bad.length ? 'error' : '');
+      });
+    }).catch(function (err) {
+      setMsg(err.message, 'error');
+      updateBottom();
+    });
+  }
+
+  function revealPath(path) {
+    api('/api/reveal', 'POST', { path: path }).catch(function (err) { setMsg(err.message, 'error'); });
+  }
+
+  function switchTab(tab) {
+    state.tab = tab;
+    $('tabBreakdown').setAttribute('aria-selected', tab === 'breakdown' ? 'true' : 'false');
+    $('tabOld').setAttribute('aria-selected', tab === 'old' ? 'true' : 'false');
+    $('breakdownPanel').hidden = tab !== 'breakdown';
+    $('oldPanel').hidden = tab !== 'old';
+  }
+
+  $('scan').addEventListener('click', startScan);
+  $('path').addEventListener('keydown', function (e) { if (e.key === 'Enter') startScan(); });
+  $('cancel').addEventListener('click', function () { api('/api/cancel', 'POST', {}).catch(function () {}); });
+  $('clear').addEventListener('click', function () { state.selected.clear(); render(); });
+  $('delete').addEventListener('click', deleteSelected);
+  $('tabBreakdown').addEventListener('click', function () { switchTab('breakdown'); });
+  $('tabOld').addEventListener('click', function () { switchTab('old'); });
+  $('oldAge').addEventListener('change', function () { $('oldAgeSide').value = $('oldAge').value; renderOldFiles(); });
+  $('oldSize').addEventListener('change', function () { $('oldSizeSide').value = $('oldSize').value; renderOldFiles(); });
+  $('oldAgeSide').addEventListener('change', function () { $('oldAge').value = $('oldAgeSide').value; renderOldFiles(); });
+  $('oldSizeSide').addEventListener('change', function () { $('oldSize').value = $('oldSizeSide').value; renderOldFiles(); });
+  $('browse').addEventListener('click', function () {
+    $('browse').disabled = true;
+    api('/api/pick', 'POST', {}).then(function (r) {
+      if (r.path) $('path').value = r.path;
+    }).catch(function (err) {
+      setMsg(err.message, 'error');
+    }).finally(function () {
+      $('browse').disabled = false;
+    });
+  });
+  $('quit').addEventListener('click', function () {
+    api('/api/quit', 'POST', {}).catch(function () {}).finally(function () {
+      document.body.textContent = 'Disk Space Visualizer has closed. You can close this tab.';
+      document.body.style.padding = '40px';
+    });
+  });
+
+  function init() {
+    api('/api/places').then(function (p) {
+      state.trashName = p.trashName || state.trashName;
+      $('delete').textContent = 'Move to ' + state.trashName;
+      $('browse').hidden = !p.canPick;
+      $('skip').value = (p.excludes || []).join('\n');
+      $('skipbox').open = (p.excludes || []).length > 0;
+      (p.places || []).forEach(function (pl) {
+        var b = el('button', 'chip', pl.name);
+        b.type = 'button';
+        b.title = pl.path;
+        b.addEventListener('click', function () { $('path').value = pl.path; });
+        $('places').appendChild(b);
+      });
+      return api('/api/status');
+    }).then(function (s) {
+      if (s.phase === 'walking') {
+        $('path').value = s.root;
+        $('scan').disabled = true;
+        $('progress').hidden = false;
+        poll();
+      } else if (s.phase === 'done') {
+        $('path').value = s.root;
+        loadResults();
+      }
+    }).catch(function (err) {
+      setMsg('Could not reach the app. Start it again if it was closed. ' + err.message, 'error');
+    });
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
